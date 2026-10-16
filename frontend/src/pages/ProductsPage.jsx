@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from 'react';
 import ProductCard from '../components/ProductCard.jsx';
 import StatusMessage from '../components/StatusMessage.jsx';
@@ -10,15 +9,47 @@ export default function ProductsPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All');
   const [sortBy, setSortBy] = useState('default');
+
+  // Keep category choices separate from search results.
+  const [categories, setCategories] = useState(['All']);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const { addToCart, cartMessage } = useCart();
 
+  // Load the complete catalog to keep category options available.
   useEffect(() => {
     let active = true;
 
     api.getProducts()
+      .then((data) => {
+        if (active) {
+          setCategories([
+            'All',
+            ...new Set(data.products.map((p) => p.category))
+          ]);
+        }
+      })
+      .catch(() => {
+        // Search requests below will display connection errors.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Request matching products whenever the search changes.
+  useEffect(() => {
+    let active = true;
+
+    // Reset the old results while requesting new ones.
+    setProducts([]);
+    setLoading(true);
+    setError('');
+
+    api.getProducts(search.trim())
       .then((data) => {
         if (active) {
           setProducts(data.products);
@@ -27,6 +58,7 @@ export default function ProductsPage() {
       .catch((caught) => {
         if (active) {
           setError(caught.message);
+          setProducts([]);
         }
       })
       .finally(() => {
@@ -35,34 +67,18 @@ export default function ProductsPage() {
         }
       });
 
+    // Prevent an older request from replacing newer results.
     return () => {
       active = false;
     };
-  }, []);
+  }, [search]);
 
-  const categories = useMemo(
-    () => [
-      'All',
-      ...new Set(products.map((product) => product.category))
-    ],
-    [products]
-  );
-
+  // Apply category filtering and sorting to API results.
   const visibleProducts = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const filteredProducts = products.filter((product) =>
+      category === 'All' || product.category === category
+    );
 
-    const filteredProducts = products.filter((product) => {
-      const matchesSearch =
-        product.name.toLowerCase().includes(query) ||
-        product.description.toLowerCase().includes(query);
-
-      const matchesCategory =
-        category === 'All' || product.category === category;
-
-      return matchesSearch && matchesCategory;
-    });
-
-    // Sort a copy without modifying the original product data.
     const sortedProducts = [...filteredProducts];
 
     if (sortBy === 'price-low') {
@@ -80,7 +96,7 @@ export default function ProductsPage() {
     }
 
     return sortedProducts;
-  }, [products, search, category, sortBy]);
+  }, [products, category, sortBy]);
 
   return (
     <section>
@@ -141,9 +157,7 @@ export default function ProductsPage() {
       <StatusMessage>{cartMessage}</StatusMessage>
 
       {loading && (
-        <StatusMessage>
-          Loading products…
-        </StatusMessage>
+        <StatusMessage>Loading products…</StatusMessage>
       )}
 
       {error && (
@@ -158,15 +172,17 @@ export default function ProductsPage() {
         </StatusMessage>
       )}
 
-      <div className="product-grid">
-        {visibleProducts.map((product) => (
-          <ProductCard
-            key={product.id}
-            product={product}
-            onAddToCart={addToCart}
-          />
-        ))}
-      </div>
+      {!loading && !error && (
+        <div className="product-grid">
+          {visibleProducts.map((product) => (
+            <ProductCard
+              key={product.id}
+              product={product}
+              onAddToCart={addToCart}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
